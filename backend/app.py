@@ -33,7 +33,8 @@ async def get_current_user(authorization: str = Header(None)) -> str:
     try:
         response = await storage.client.auth.get_user(token)
         return response.user.id
-    except Exception:
+    except Exception as e:
+        logger.warning("Auth failed: %s", e)
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
