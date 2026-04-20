@@ -11,6 +11,7 @@ function RecordTab({ token }) {
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
 
+  const [audioUrl, setAudioUrl] = useState(null)
   const mediaRecorderRef = useRef(null)
   const chunksRef = useRef([])
 
@@ -19,7 +20,12 @@ function RecordTab({ token }) {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mediaRecorder = new MediaRecorder(stream)
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : ''
+      const mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
       mediaRecorderRef.current = mediaRecorder
       chunksRef.current = []
 
@@ -28,7 +34,8 @@ function RecordTab({ token }) {
       }
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType })
+        setAudioUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(blob) })
         setAudioBlob(blob)
         stream.getTracks().forEach((t) => t.stop())
       }
@@ -58,8 +65,9 @@ function RecordTab({ token }) {
     try {
       // Step 1: transcribe
       setStatus('Transcribing audio...')
+      const ext = audioBlob.type.includes('mp4') ? 'mp4' : 'webm'
       const formData = new FormData()
-      formData.append('audio', audioBlob, 'recording.webm')
+      formData.append('audio', audioBlob, `recording.${ext}`)
 
       const res = await fetch(`${API_URL}/transcribe`, {
         method: 'POST',
@@ -90,6 +98,8 @@ function RecordTab({ token }) {
   }
 
   const reset = () => {
+    if (audioUrl) URL.revokeObjectURL(audioUrl)
+    setAudioUrl(null)
     setAudioBlob(null)
     setTranscript('')
     setCleanedText('')
@@ -113,17 +123,20 @@ function RecordTab({ token }) {
         )}
 
         {audioBlob && !isRecording && (
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <button
-              className="button button-primary"
-              onClick={transcribeAudio}
-              disabled={loading}
-            >
-              {loading ? status || 'Processing...' : 'Transcribe & Save'}
-            </button>
-            <button className="button button-secondary" onClick={reset} disabled={loading}>
-              Record again
-            </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <audio controls src={audioUrl} style={{ width: '100%' }} />
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                className="button button-primary"
+                onClick={transcribeAudio}
+                disabled={loading}
+              >
+                {loading ? status || 'Processing...' : 'Transcribe & Save'}
+              </button>
+              <button className="button button-secondary" onClick={reset} disabled={loading}>
+                Record again
+              </button>
+            </div>
           </div>
         )}
       </div>
