@@ -1,21 +1,39 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+function formatTime(seconds) {
+  const m = String(Math.floor(seconds / 60)).padStart(2, '0')
+  const s = String(seconds % 60).padStart(2, '0')
+  return `${m}:${s}`
+}
 
 function RecordTab({ token }) {
   const [isRecording, setIsRecording] = useState(false)
   const [audioBlob, setAudioBlob] = useState(null)
+  const [audioUrl, setAudioUrl] = useState(null)
   const [transcript, setTranscript] = useState('')
   const [cleanedText, setCleanedText] = useState('')
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
+  const [elapsed, setElapsed] = useState(0)
 
-  const [audioUrl, setAudioUrl] = useState(null)
   const mediaRecorderRef = useRef(null)
   const chunksRef = useRef([])
+  const timerRef = useRef(null)
 
   const authHeaders = { Authorization: `Bearer ${token}` }
+
+  useEffect(() => {
+    if (isRecording) {
+      setElapsed(0)
+      timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000)
+    } else {
+      clearInterval(timerRef.current)
+    }
+    return () => clearInterval(timerRef.current)
+  }, [isRecording])
 
   const startRecording = async () => {
     try {
@@ -25,7 +43,9 @@ function RecordTab({ token }) {
         : MediaRecorder.isTypeSupported('audio/mp4')
         ? 'audio/mp4'
         : ''
-      const mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+      const mediaRecorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream)
       mediaRecorderRef.current = mediaRecorder
       chunksRef.current = []
 
@@ -61,10 +81,8 @@ function RecordTab({ token }) {
     if (!audioBlob) return
     setLoading(true)
     setError('')
-
     try {
-      // Step 1: transcribe
-      setStatus('Transcribing audio...')
+      setStatus('Transcribing...')
       const ext = audioBlob.type.includes('mp4') ? 'mp4' : 'webm'
       const formData = new FormData()
       formData.append('audio', audioBlob, `recording.${ext}`)
@@ -78,8 +96,7 @@ function RecordTab({ token }) {
       const { transcript: raw } = await res.json()
       setTranscript(raw)
 
-      // Step 2: clean + save
-      setStatus('Cleaning and saving...')
+      setStatus('Cleaning & saving...')
       const cleanRes = await fetch(`${API_URL}/clean`, {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
@@ -105,36 +122,48 @@ function RecordTab({ token }) {
     setCleanedText('')
     setError('')
     setStatus('')
+    setElapsed(0)
   }
 
   return (
     <div>
-      <div style={{ marginBottom: '20px' }}>
-        {!isRecording && !audioBlob && (
-          <button className="button button-primary" onClick={startRecording}>
-            Start Recording
-          </button>
+      <div className="record-center">
+        {/* Mic / stop button */}
+        {!audioBlob && (
+          <>
+            <button
+              className={`record-btn ${isRecording ? 'record-btn-active' : 'record-btn-idle'}`}
+              onClick={isRecording ? stopRecording : startRecording}
+            >
+              <span className="record-btn-icon" />
+            </button>
+
+            {isRecording ? (
+              <>
+                <div className="record-timer">{formatTime(elapsed)}</div>
+                <div className="record-label">Recording — tap to stop</div>
+              </>
+            ) : (
+              <div className="record-label">Tap to start recording</div>
+            )}
+          </>
         )}
 
-        {isRecording && (
-          <button className="button button-danger" onClick={stopRecording}>
-            Stop Recording
-          </button>
-        )}
-
+        {/* After recording */}
         {audioBlob && !isRecording && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <audio controls src={audioUrl} style={{ width: '100%' }} />
-            <div style={{ display: 'flex', gap: '10px' }}>
+          <div className="record-actions">
+            <audio controls src={audioUrl} style={{ width: '100%', borderRadius: '8px' }} />
+            <div style={{ display: 'flex', gap: '8px' }}>
               <button
                 className="button button-primary"
                 onClick={transcribeAudio}
                 disabled={loading}
+                style={{ flex: 1 }}
               >
                 {loading ? status || 'Processing...' : 'Transcribe & Save'}
               </button>
               <button className="button button-secondary" onClick={reset} disabled={loading}>
-                Record again
+                Redo
               </button>
             </div>
           </div>
@@ -151,8 +180,8 @@ function RecordTab({ token }) {
       )}
 
       {cleanedText && (
-        <div className="result" style={{ borderLeftColor: '#10b981' }}>
-          <h3>Cleaned &amp; saved</h3>
+        <div className="result result-success">
+          <h3>Cleaned & saved</h3>
           <p>{cleanedText}</p>
         </div>
       )}

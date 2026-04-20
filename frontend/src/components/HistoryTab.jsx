@@ -13,9 +13,7 @@ function HistoryTab({ token }) {
 
   const authHeaders = { Authorization: `Bearer ${token}` }
 
-  useEffect(() => {
-    fetchHistory()
-  }, [])
+  useEffect(() => { fetchHistory() }, [])
 
   const fetchHistory = async () => {
     setLoading(true)
@@ -33,10 +31,7 @@ function HistoryTab({ token }) {
   }
 
   const handleSearch = async () => {
-    if (!searchQuery.trim()) {
-      fetchHistory()
-      return
-    }
+    if (!searchQuery.trim()) { fetchHistory(); return }
     setLoading(true)
     setError('')
     try {
@@ -54,17 +49,13 @@ function HistoryTab({ token }) {
   }
 
   const toggleExpand = async (id) => {
-    if (expandedId === id) {
-      setExpandedId(null)
-      setExpandedContent('')
-      return
-    }
+    if (expandedId === id) { setExpandedId(null); setExpandedContent(''); return }
     setExpandedId(id)
     setExpandedContent('')
     setContentLoading(true)
     try {
       const res = await fetch(`${API_URL}/transcript/${id}`, { headers: authHeaders })
-      if (!res.ok) throw new Error('Failed to load transcript')
+      if (!res.ok) throw new Error('Failed to load')
       const data = await res.json()
       setExpandedContent(data.content)
     } catch (err) {
@@ -81,8 +72,8 @@ function HistoryTab({ token }) {
           type="text"
           placeholder="Search transcripts..."
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+          onChange={e => setSearchQuery(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleSearch()}
         />
         <button className="button button-primary" onClick={handleSearch} disabled={loading}>
           Search
@@ -95,25 +86,25 @@ function HistoryTab({ token }) {
       {error && <div className="error">{error}</div>}
 
       {loading && (
-        <p style={{ color: '#64748b', marginTop: '16px', fontSize: '0.9rem' }}>Loading...</p>
+        <div style={{ color: '#475569', fontSize: '0.875rem', padding: '16px 0' }}>Loading...</div>
       )}
 
       {!loading && !error && history.length === 0 && (
-        <p style={{ color: '#94a3b8', marginTop: '24px', fontSize: '0.9rem' }}>
-          No transcripts yet. Start by recording audio on the Record tab.
-        </p>
+        <div style={{ color: '#334155', fontSize: '0.9rem', padding: '32px 0', textAlign: 'center' }}>
+          No transcripts yet. Record something on the Record tab.
+        </div>
       )}
 
       <div className="history-list">
-        {history.map((item) => (
+        {history.map(item => (
           <div
             key={item.id}
             className={`history-item ${expandedId === item.id ? 'expanded' : ''}`}
             onClick={() => toggleExpand(item.id)}
           >
-            <div className="history-title">{item.title}</div>
-            <div className="history-timestamp">
-              {new Date(item.created_at).toLocaleString()}
+            <div className="history-item-header">
+              <div className="history-title">{item.title}</div>
+              <div className="history-timestamp">{new Date(item.created_at).toLocaleString()}</div>
             </div>
 
             {expandedId === item.id && (
