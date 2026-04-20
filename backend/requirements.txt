@@ -3,5 +3,4 @@ uvicorn[standard]
 python-dotenv
 groq
 supabase>=2.0.0
-PyJWT
 python-multipart

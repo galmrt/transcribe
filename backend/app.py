@@ -5,7 +5,6 @@ import tempfile
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-import jwt as pyjwt
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,28 +22,19 @@ logger = logging.getLogger(__name__)
 MAX_UPLOAD_SIZE = 25 * 1024 * 1024  # 25 MB
 MAX_QUERY_LENGTH = 1000
 
-SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
-
 from services import TranscriptionService, StorageService, ChatService
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
-def get_current_user(authorization: str = Header(None)) -> str:
+async def get_current_user(authorization: str = Header(None)) -> str:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Not authenticated")
     token = authorization.split(" ", 1)[1]
     try:
-        payload = pyjwt.decode(
-            token,
-            SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            audience="authenticated",
-        )
-        return payload["sub"]
-    except pyjwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except pyjwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        response = await storage.client.auth.get_user(token)
+        return response.user.id
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
 # ── Services (initialised in lifespan) ───────────────────────────────────────
