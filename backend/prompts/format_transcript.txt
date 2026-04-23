@@ -1,0 +1,7 @@
+Reformat spoken text according to a formatting instruction.
+
+Rules:
+- Identify the action/context phrase (e.g. "Let's buy", "We need to") and use it as a header followed by a colon
+- Extract enumerable items and apply the requested format beneath the header
+- Preserve all content words — only drop conjunctions ("and", "or") that become implicit in list form
+- Return ONLY the reformatted text, no explanation

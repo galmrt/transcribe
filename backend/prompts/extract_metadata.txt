@@ -1,0 +1,16 @@
+Extract structured metadata from the transcript below. Return a JSON object with exactly these two keys:
+
+"tags": an array of 3-5 lowercase topic tags that describe the content (e.g. ["meeting", "project", "deadline", "shopping"]). Choose specific, useful tags — not generic ones like "audio" or "transcript".
+
+"action_items": an array of strings, each a clear and self-contained action item found in the text. Only include actual commitments or tasks (things someone needs to do). Empty array if none.
+
+Return only the JSON object. No explanation, no preamble.
+
+Examples:
+Input: "I need to call John tomorrow about the contract, and we should also order more coffee for the office."
+Output: {"tags": ["tasks", "work", "office"], "action_items": ["Call John tomorrow about the contract", "Order more coffee for the office"]}
+
+Input: "Today was a good day. I went for a run and had lunch with Sarah."
+Output: {"tags": ["personal", "health", "social"], "action_items": []}
+
+TRANSCRIPT:

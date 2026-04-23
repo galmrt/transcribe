@@ -109,6 +109,7 @@ function ChatTab({ token }) {
   }
 
   return (
+    <div style={{ display: 'flex', flex: 1, overflow: 'hidden', height: '100%' }}>
     <div className="chat-layout">
       {/* Sidebar */}
       <div className="chat-sidebar">
@@ -180,6 +181,7 @@ function ChatTab({ token }) {
           </button>
         </div>
       </div>
+    </div>
     </div>
   )
 }

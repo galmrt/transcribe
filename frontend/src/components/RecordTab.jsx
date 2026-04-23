@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -18,6 +19,12 @@ function RecordTab({ token }) {
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [elapsed, setElapsed] = useState(0)
+  const [mode, setMode] = useState('clean') // 'clean' | 'raw'
+  const [instructions, setInstructions] = useState('')
+  const [showInstructions, setShowInstructions] = useState(false)
+  const [diarize, setDiarize] = useState(false)
+  const [tags, setTags] = useState([])
+  const [actionItems, setActionItems] = useState([])
 
   const mediaRecorderRef = useRef(null)
   const chunksRef = useRef([])
@@ -86,6 +93,7 @@ function RecordTab({ token }) {
       const ext = audioBlob.type.includes('mp4') ? 'mp4' : 'webm'
       const formData = new FormData()
       formData.append('audio', audioBlob, `recording.${ext}`)
+      formData.append('diarize', diarize ? 'true' : 'false')
 
       const res = await fetch(`${API_URL}/transcribe`, {
         method: 'POST',
@@ -96,15 +104,30 @@ function RecordTab({ token }) {
       const { transcript: raw } = await res.json()
       setTranscript(raw)
 
-      setStatus('Cleaning & saving...')
-      const cleanRes = await fetch(`${API_URL}/clean`, {
-        method: 'POST',
-        headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: raw }),
-      })
-      if (!cleanRes.ok) throw new Error(`Cleaning failed (${cleanRes.status})`)
-      const { cleaned_text } = await cleanRes.json()
-      setCleanedText(cleaned_text)
+      if (mode === 'clean') {
+        setStatus('Cleaning & saving...')
+        const cleanRes = await fetch(`${API_URL}/clean`, {
+          method: 'POST',
+          headers: { ...authHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: raw, instructions }),
+        })
+        if (!cleanRes.ok) throw new Error(`Cleaning failed (${cleanRes.status})`)
+        const { cleaned_text, tags: t, action_items: a } = await cleanRes.json()
+        setCleanedText(cleaned_text)
+        setTags(t || [])
+        setActionItems(a || [])
+      } else {
+        setStatus('Saving...')
+        const saveRes = await fetch(`${API_URL}/save`, {
+          method: 'POST',
+          headers: { ...authHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: raw }),
+        })
+        if (!saveRes.ok) throw new Error(`Save failed (${saveRes.status})`)
+        const { tags: t, action_items: a } = await saveRes.json()
+        setTags(t || [])
+        setActionItems(a || [])
+      }
       setStatus('')
     } catch (err) {
       setError(err.message)
@@ -120,15 +143,25 @@ function RecordTab({ token }) {
     setAudioBlob(null)
     setTranscript('')
     setCleanedText('')
+    setTags([])
+    setActionItems([])
     setError('')
     setStatus('')
     setElapsed(0)
   }
 
   return (
-    <div>
-      <div className="record-center">
-        {/* Mic / stop button */}
+    <div className="record-page">
+
+      {/* Centered record area */}
+      <div className="record-stage">
+        {!audioBlob && !isRecording && (
+          <div className="record-hero">
+            <div className="record-hero-title">What's on your mind?</div>
+            <div className="record-hero-sub">Record a thought, meeting, or note — and ask questions about it later.</div>
+          </div>
+        )}
+
         {!audioBlob && (
           <>
             <button
@@ -149,7 +182,6 @@ function RecordTab({ token }) {
           </>
         )}
 
-        {/* After recording */}
         {audioBlob && !isRecording && (
           <div className="record-actions">
             <audio controls src={audioUrl} style={{ width: '100%', borderRadius: '8px' }} />
@@ -168,21 +200,134 @@ function RecordTab({ token }) {
             </div>
           </div>
         )}
+
+        {/* Mode toggle — below record button */}
+        {!audioBlob && !isRecording && (
+          <div className="record-options">
+            <div className="record-option-group">
+              <div className="record-option-label">Output mode</div>
+              <div className="record-option-hint">
+                {mode === 'clean'
+                  ? 'Removes filler words, fixes grammar, and applies your formatting instructions.'
+                  : 'Saves the transcript exactly as spoken, with no edits.'}
+              </div>
+              <div className="mode-toggle" style={{ marginTop: '10px' }}>
+                <button
+                  className={`mode-btn ${mode === 'clean' ? 'active' : ''}`}
+                  onClick={() => setMode('clean')}
+                >
+                  Clean
+                </button>
+                <button
+                  className={`mode-btn ${mode === 'raw' ? 'active' : ''}`}
+                  onClick={() => setMode('raw')}
+                >
+                  Raw
+                </button>
+              </div>
+            </div>
+
+            <div className="record-option-group">
+              <div className="record-option-label">Speaker diarization</div>
+              <div className="record-option-hint">
+                Identify who said what. Best for recordings with multiple speakers.
+              </div>
+              <div className="mode-toggle" style={{ marginTop: '10px' }}>
+                <button
+                  className={`mode-btn ${!diarize ? 'active' : ''}`}
+                  onClick={() => setDiarize(false)}
+                >
+                  Off
+                </button>
+                <button
+                  className={`mode-btn ${diarize ? 'active' : ''}`}
+                  onClick={() => setDiarize(true)}
+                >
+                  On
+                </button>
+              </div>
+            </div>
+
+            {mode === 'clean' && (
+              <div className="record-option-group">
+                <div className="record-option-label">Formatting instructions</div>
+                <div className="record-option-hint">
+                  Tell the AI how to format the result — e.g. "bullet list", "table", "highlight action items".
+                  Leave blank to just clean the transcript.
+                </div>
+                <button
+                  className="instructions-toggle"
+                  style={{ marginTop: '10px' }}
+                  onClick={() => setShowInstructions(v => !v)}
+                >
+                  {showInstructions ? 'Hide' : 'Add instructions'}
+                </button>
+                {showInstructions && (
+                  <textarea
+                    className="instructions-input"
+                    style={{ marginTop: '8px' }}
+                    placeholder="e.g. Format as a bullet list. Highlight action items."
+                    value={instructions}
+                    onChange={e => setInstructions(e.target.value)}
+                    rows={3}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {error && <div className="error">{error}</div>}
 
-      {transcript && (
+      {transcript && mode === 'clean' && (
         <div className="result">
           <h3>Raw transcript</h3>
-          <p>{transcript}</p>
+          <div className="result-markdown">{transcript}</div>
+        </div>
+      )}
+
+      {transcript && mode === 'raw' && !loading && (
+        <div className="result result-success">
+          <h3>Saved</h3>
+          <div className="result-markdown">{transcript}</div>
         </div>
       )}
 
       {cleanedText && (
         <div className="result result-success">
           <h3>Cleaned & saved</h3>
-          <p>{cleanedText}</p>
+          <div className="result-markdown">
+            <ReactMarkdown>{cleanedText}</ReactMarkdown>
+          </div>
+          {tags.length > 0 && (
+            <div className="tag-list" style={{ marginTop: '12px' }}>
+              {tags.map(tag => <span key={tag} className="tag-chip">{tag}</span>)}
+            </div>
+          )}
+          {actionItems.length > 0 && (
+            <div className="action-items">
+              <div className="action-items-label">Action items</div>
+              <ul className="action-items-list">
+                {actionItems.map((item, i) => <li key={i}>{item}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {transcript && mode === 'raw' && !loading && tags.length > 0 && (
+        <div className="tag-list" style={{ marginTop: '12px' }}>
+          {tags.map(tag => <span key={tag} className="tag-chip">{tag}</span>)}
+        </div>
+      )}
+
+      {transcript && mode === 'raw' && !loading && actionItems.length > 0 && (
+        <div className="action-items">
+          <div className="action-items-label">Action items</div>
+          <ul className="action-items-list">
+            {actionItems.map((item, i) => <li key={i}>{item}</li>)}
+          </ul>
         </div>
       )}
     </div>

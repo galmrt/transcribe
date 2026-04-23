@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -107,9 +108,17 @@ function HistoryTab({ token }) {
               <div className="history-timestamp">{new Date(item.created_at).toLocaleString()}</div>
             </div>
 
+            {item.tags && item.tags.length > 0 && (
+              <div className="tag-list">
+                {item.tags.map(tag => (
+                  <span key={tag} className="tag-chip">{tag}</span>
+                ))}
+              </div>
+            )}
+
             {expandedId === item.id && (
               <div className="history-content">
-                {contentLoading ? 'Loading...' : expandedContent}
+                {contentLoading ? 'Loading...' : <ReactMarkdown>{expandedContent}</ReactMarkdown>}
               </div>
             )}
           </div>

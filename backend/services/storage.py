@@ -3,6 +3,7 @@
 import logging
 from datetime import datetime, timezone
 from supabase import AsyncClient, acreate_client
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -19,14 +20,32 @@ class StorageService:
 
     # ── Transcripts ───────────────────────────────────────────────────────────
 
-    async def save_transcript(self, user_id: str, title: str, content: str) -> dict:
+    async def save_transcript(
+        self,
+        user_id: str,
+        title: str,
+        content: str,
+        embedding: list[float] | None = None,
+        tags: list[str] | None = None,
+        action_items: list[str] | None = None,
+    ) -> dict:
+        row_data = {"user_id": user_id, "title": title, "content": content}
+        if embedding is not None:
+            row_data["embedding"] = embedding
+        if tags is not None:
+            row_data["tags"] = tags
+        if action_items is not None:
+            row_data["action_items"] = action_items
         result = await (
             self.client.table("transcripts")
-            .insert({"user_id": user_id, "title": title, "content": content})
+            .insert(row_data)
             .execute()
         )
         row = result.data[0]
-        logger.info("Saved transcript %s for user %s", row["id"], user_id)
+        logger.info(
+            "Saved transcript %s (embedding=%s, tags=%s, actions=%d)",
+            row["id"], "yes" if embedding else "no", tags, len(action_items or []),
+        )
         return row
 
     async def get_transcript(self, user_id: str, transcript_id: str) -> dict | None:
@@ -43,7 +62,7 @@ class StorageService:
     async def get_history(self, user_id: str, limit: int = 50) -> list:
         result = await (
             self.client.table("transcripts")
-            .select("id, title, created_at")
+            .select("id, title, created_at, tags")
             .eq("user_id", user_id)
             .order("created_at", desc=True)
             .limit(limit)
@@ -57,6 +76,47 @@ class StorageService:
             {"p_user_id": user_id, "p_query": query, "p_limit": limit},
         ).execute()
         return result.data or []
+
+    async def search_transcripts_semantic(
+        self, user_id: str, embedding: list[float], limit: int = 3
+    ) -> list:
+        result = await self.client.rpc(
+            "search_transcripts_semantic",
+            {"p_user_id": user_id, "p_embedding": embedding, "p_limit": limit},
+        ).execute()
+        return result.data or []
+
+    async def search_transcripts_hybrid(
+        self, user_id: str, query: str, embedding: list[float], limit: int = 5
+    ) -> list:
+        result = await self.client.rpc(
+            "search_transcripts_hybrid",
+            {"p_user_id": user_id, "p_query": query, "p_embedding": embedding, "p_limit": limit},
+        ).execute()
+        return result.data or []
+
+    async def log_search(
+        self,
+        user_id: str,
+        query: str,
+        mode: str,
+        result_count: int,
+        latency_ms: int,
+    ) -> None:
+        try:
+            await (
+                self.client.table("search_logs")
+                .insert({
+                    "user_id": user_id,
+                    "query": query,
+                    "mode": mode,
+                    "result_count": result_count,
+                    "latency_ms": latency_ms,
+                })
+                .execute()
+            )
+        except Exception as e:
+            logger.warning("Failed to log search: %s", e)
 
     # ── Chat sessions ─────────────────────────────────────────────────────────
 
@@ -86,6 +146,18 @@ class StorageService:
             .select("id, title, updated_at, created_at")
             .eq("user_id", user_id)
             .order("updated_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return result.data or []
+
+    async def get_transcripts_with_actions(self, user_id: str, limit: int = 100) -> list:
+        result = await (
+            self.client.table("transcripts")
+            .select("id, title, created_at, tags, action_items")
+            .eq("user_id", user_id)
+            .neq("action_items", "[]")
+            .order("created_at", desc=True)
             .limit(limit)
             .execute()
         )

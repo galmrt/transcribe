@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -6,7 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 MAX_UPLOAD_SIZE = 25 * 1024 * 1024  # 25 MB
 MAX_QUERY_LENGTH = 1000
 
-from services import TranscriptionService, StorageService, ChatService
+from services import TranscriptionService, StorageService, ChatService, EmbeddingService
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -43,11 +44,12 @@ async def get_current_user(authorization: str = Header(None)) -> str:
 transcription: TranscriptionService = None
 storage: StorageService = None
 chat: ChatService = None
+embeddings: EmbeddingService = None
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    global transcription, storage, chat
+    global transcription, storage, chat, embeddings
 
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
@@ -62,10 +64,16 @@ async def lifespan(_app: FastAPI):
         url=os.getenv("SUPABASE_URL"),
         service_key=os.getenv("SUPABASE_SERVICE_KEY"),
     )
+    hf_key = os.getenv("HUGGINGFACE_API_KEY")
+    if hf_key:
+        embeddings = EmbeddingService(api_key=hf_key)
+    else:
+        logger.warning("HUGGINGFACE_API_KEY not set — semantic search disabled")
     chat = ChatService(
         api_key=api_key,
         model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
         storage=storage,
+        embedding_service=embeddings,
     )
     logger.info("All services ready")
     yield
@@ -92,6 +100,10 @@ app.add_middleware(
 
 class CleanRequest(BaseModel):
     text: str
+    instructions: str = ""
+
+class SaveRequest(BaseModel):
+    text: str
 
 class ChatRequest(BaseModel):
     messages: list
@@ -108,6 +120,7 @@ async def health():
 @app.post("/transcribe")
 async def transcribe_audio(
     audio: Annotated[UploadFile, File(description="Audio file (webm/mp3/wav/m4a)")],
+    diarize: bool = Form(False),
     user_id: str = Depends(get_current_user),
 ):
     content = await audio.read()
@@ -121,7 +134,7 @@ async def transcribe_audio(
             f.write(content)
             tmp_path = f.name
 
-        transcript = await transcription.transcribe(tmp_path)
+        transcript = await transcription.transcribe(tmp_path, diarize=diarize)
         return {"transcript": transcript}
     except Exception:
         logger.exception("Transcription failed")
@@ -142,13 +155,51 @@ async def clean_transcript(
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
     try:
-        cleaned = await transcription.clean(body.text)
+        cleaned = await transcription.clean(body.text, body.instructions)
         title = " ".join(cleaned.split()[:6])
-        await storage.save_transcript(user_id, title, cleaned)
-        return {"cleaned_text": cleaned}
+        tasks = [transcription.extract_metadata(cleaned)]
+        if embeddings:
+            tasks.append(embeddings.embed(cleaned))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        metadata = results[0] if not isinstance(results[0], Exception) else {"tags": [], "action_items": []}
+        embedding = results[1] if len(results) > 1 and not isinstance(results[1], Exception) else None
+        if not embeddings:
+            logger.warning("Embedding service not available — skipping embedding")
+        await storage.save_transcript(
+            user_id, title, cleaned, embedding,
+            tags=metadata.get("tags"), action_items=metadata.get("action_items"),
+        )
+        return {"cleaned_text": cleaned, "tags": metadata.get("tags", []), "action_items": metadata.get("action_items", [])}
     except Exception:
         logger.exception("Cleaning failed")
         raise HTTPException(status_code=500, detail="Cleaning failed")
+
+
+@app.post("/save")
+async def save_transcript(
+    body: SaveRequest,
+    user_id: str = Depends(get_current_user),
+):
+    if not body.text.strip():
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
+    try:
+        title = " ".join(body.text.split()[:6])
+        tasks = [transcription.extract_metadata(body.text)]
+        if embeddings:
+            tasks.append(embeddings.embed(body.text))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        metadata = results[0] if not isinstance(results[0], Exception) else {"tags": [], "action_items": []}
+        embedding = results[1] if len(results) > 1 and not isinstance(results[1], Exception) else None
+        if not embeddings:
+            logger.warning("Embedding service not available — skipping embedding")
+        await storage.save_transcript(
+            user_id, title, body.text, embedding,
+            tags=metadata.get("tags"), action_items=metadata.get("action_items"),
+        )
+        return {"saved": True, "tags": metadata.get("tags", []), "action_items": metadata.get("action_items", [])}
+    except Exception:
+        logger.exception("Save failed")
+        raise HTTPException(status_code=500, detail="Save failed")
 
 
 @app.post("/search")
@@ -163,6 +214,15 @@ async def search(query: str, user_id: str = Depends(get_current_user)):
     except Exception:
         logger.exception("Search failed")
         raise HTTPException(status_code=500, detail="Search failed")
+
+
+@app.get("/tasks")
+async def get_tasks(user_id: str = Depends(get_current_user)):
+    try:
+        return await storage.get_transcripts_with_actions(user_id)
+    except Exception:
+        logger.exception("Tasks fetch failed")
+        raise HTTPException(status_code=500, detail="Failed to fetch tasks")
 
 
 @app.get("/history")

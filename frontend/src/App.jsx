@@ -4,6 +4,32 @@ import AuthPage from './components/AuthPage'
 import RecordTab from './components/RecordTab'
 import HistoryTab from './components/HistoryTab'
 import ChatTab from './components/ChatTab'
+import TasksTab from './components/TasksTab'
+
+const NAV_ITEMS = [
+  { id: 'record',  label: 'Record'  },
+  { id: 'history', label: 'History' },
+  { id: 'tasks',   label: 'Tasks'   },
+  { id: 'chat',    label: 'Chat'    },
+]
+
+function MicIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="8" fill="#2d6be4"/>
+      <rect x="13" y="6" width="6" height="12" rx="3" fill="white"/>
+      <path d="M9 17a7 7 0 0014 0" stroke="white" strokeWidth="2" fill="none" strokeLinecap="round"/>
+      <rect x="15" y="24" width="2" height="4" fill="white"/>
+    </svg>
+  )
+}
+
+function UserAvatar({ email }) {
+  const initial = email ? email[0].toUpperCase() : '?'
+  return (
+    <div className="user-avatar">{initial}</div>
+  )
+}
 
 function App() {
   const [session, setSession] = useState(null)
@@ -24,11 +50,7 @@ function App() {
   }, [])
 
   if (loading) {
-    return (
-      <div className="app" style={{ color: 'white', textAlign: 'center', paddingTop: '100px' }}>
-        Loading...
-      </div>
-    )
+    return <div className="app-loading">Loading...</div>
   }
 
   if (!session) {
@@ -38,48 +60,60 @@ function App() {
   const token = session.access_token
 
   return (
-    <div className="app">
-      <header className="header">
-        <div className="header-inner">
+    <div className="app-shell">
+      <nav className="sidebar">
+        <div className="sidebar-brand">
+          <MicIcon />
           <div>
-            <h1>Transcripts</h1>
-            <p>Record audio, search your transcripts, ask questions.</p>
+            <div className="sidebar-brand-name">Transcripts</div>
+            <div className="sidebar-brand-tagline">Voice to knowledge</div>
+          </div>
+        </div>
+
+        <div className="sidebar-nav">
+          {NAV_ITEMS.map(item => (
+            <button
+              key={item.id}
+              className={`nav-item ${activeTab === item.id ? 'active' : ''}`}
+              onClick={() => setActiveTab(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="sidebar-footer">
+          <div className="sidebar-user-row">
+            <UserAvatar email={session.user.email} />
+            <div className="sidebar-user-email">{session.user.email}</div>
           </div>
           <button
-            className="button button-secondary"
+            className="nav-item signout"
             onClick={() => supabase.auth.signOut()}
           >
             Sign out
           </button>
         </div>
-      </header>
+      </nav>
 
-      <div className="card">
-        <div className="tabs">
-          <button
-            className={`tab ${activeTab === 'record' ? 'active' : ''}`}
-            onClick={() => setActiveTab('record')}
-          >
-            Record
-          </button>
-          <button
-            className={`tab ${activeTab === 'history' ? 'active' : ''}`}
-            onClick={() => setActiveTab('history')}
-          >
-            History
-          </button>
-          <button
-            className={`tab ${activeTab === 'chat' ? 'active' : ''}`}
-            onClick={() => setActiveTab('chat')}
-          >
-            Chat
-          </button>
-        </div>
-
-        {activeTab === 'record'  && <RecordTab  token={token} />}
-        {activeTab === 'history' && <HistoryTab token={token} />}
-        {activeTab === 'chat'    && <ChatTab    token={token} />}
-      </div>
+      <main className="main-content">
+        {activeTab === 'record' && (
+          <div className="record-wrapper">
+            <RecordTab token={token} />
+          </div>
+        )}
+        {activeTab === 'history' && (
+          <div className="content-padded">
+            <HistoryTab token={token} />
+          </div>
+        )}
+        {activeTab === 'tasks' && (
+          <div className="content-padded">
+            <TasksTab token={token} />
+          </div>
+        )}
+        {activeTab === 'chat' && <ChatTab token={token} />}
+      </main>
     </div>
   )
 }
