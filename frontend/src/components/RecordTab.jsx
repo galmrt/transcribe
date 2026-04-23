@@ -22,7 +22,6 @@ function RecordTab({ token }) {
   const [mode, setMode] = useState('clean') // 'clean' | 'raw'
   const [instructions, setInstructions] = useState('')
   const [showInstructions, setShowInstructions] = useState(false)
-  const [diarize, setDiarize] = useState(false)
   const [tags, setTags] = useState([])
   const [actionItems, setActionItems] = useState([])
 
@@ -93,8 +92,6 @@ function RecordTab({ token }) {
       const ext = audioBlob.type.includes('mp4') ? 'mp4' : 'webm'
       const formData = new FormData()
       formData.append('audio', audioBlob, `recording.${ext}`)
-      formData.append('diarize', diarize ? 'true' : 'false')
-
       const res = await fetch(`${API_URL}/transcribe`, {
         method: 'POST',
         headers: authHeaders,
@@ -227,27 +224,6 @@ function RecordTab({ token }) {
               </div>
             </div>
 
-            <div className="record-option-group">
-              <div className="record-option-label">Speaker diarization</div>
-              <div className="record-option-hint">
-                Identify who said what. Best for recordings with multiple speakers.
-              </div>
-              <div className="mode-toggle" style={{ marginTop: '10px' }}>
-                <button
-                  className={`mode-btn ${!diarize ? 'active' : ''}`}
-                  onClick={() => setDiarize(false)}
-                >
-                  Off
-                </button>
-                <button
-                  className={`mode-btn ${diarize ? 'active' : ''}`}
-                  onClick={() => setDiarize(true)}
-                >
-                  On
-                </button>
-              </div>
-            </div>
-
             {mode === 'clean' && (
               <div className="record-option-group">
                 <div className="record-option-label">Formatting instructions</div>
@@ -260,7 +236,7 @@ function RecordTab({ token }) {
                   style={{ marginTop: '10px' }}
                   onClick={() => setShowInstructions(v => !v)}
                 >
-                  {showInstructions ? 'Hide' : 'Add instructions'}
+                  {showInstructions ? '− Hide instructions' : '+ Add instructions'}
                 </button>
                 {showInstructions && (
                   <textarea

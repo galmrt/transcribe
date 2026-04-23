@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -120,7 +120,6 @@ async def health():
 @app.post("/transcribe")
 async def transcribe_audio(
     audio: Annotated[UploadFile, File(description="Audio file (webm/mp3/wav/m4a)")],
-    diarize: bool = Form(False),
     user_id: str = Depends(get_current_user),
 ):
     content = await audio.read()
@@ -134,7 +133,7 @@ async def transcribe_audio(
             f.write(content)
             tmp_path = f.name
 
-        transcript = await transcription.transcribe(tmp_path, diarize=diarize)
+        transcript = await transcription.transcribe(tmp_path)
         return {"transcript": transcript}
     except Exception:
         logger.exception("Transcription failed")

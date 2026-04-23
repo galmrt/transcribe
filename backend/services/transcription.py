@@ -21,62 +21,23 @@ class TranscriptionService:
         self.chat_model = chat_model
         logger.info("TranscriptionService initialized (whisper=%s, chat=%s)", whisper_model, chat_model)
 
-    async def transcribe(self, audio_path: str, diarize: bool = False) -> str:
+    async def transcribe(self, audio_path: str) -> str:
         """Transcribe audio file using Groq Whisper API."""
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-        logger.info("Transcribing: %s (diarize=%s)", audio_path, diarize)
+        logger.info("Transcribing: %s", audio_path)
         with open(audio_path, "rb") as f:
             audio_bytes = f.read()
 
-        if diarize:
-            result = await self.client.audio.transcriptions.create(
-                file=(os.path.basename(audio_path), audio_bytes),
-                model=self.whisper_model,
-                response_format="verbose_json",
-                diarize=True,
-            )
-            text = self._format_diarized(result)
-        else:
-            result = await self.client.audio.transcriptions.create(
-                file=(os.path.basename(audio_path), audio_bytes),
-                model=self.whisper_model,
-                response_format="text",
-            )
-            text = result if isinstance(result, str) else result.text
-
+        result = await self.client.audio.transcriptions.create(
+            file=(os.path.basename(audio_path), audio_bytes),
+            model=self.whisper_model,
+            response_format="text",
+        )
+        text = result if isinstance(result, str) else result.text
         logger.info("Transcription complete (%d chars)", len(text))
         return text
-
-    def _format_diarized(self, result) -> str:
-        """Format verbose_json diarization result into Speaker N: text lines."""
-        segments = getattr(result, "segments", []) or []
-        if not segments:
-            return getattr(result, "text", "")
-
-        lines = []
-        current_speaker = None
-        current_texts = []
-
-        for seg in segments:
-            speaker = getattr(seg, "speaker", "speaker_0")
-            label = "Speaker " + speaker.replace("speaker_", "").replace("SPEAKER_", "")
-            text = getattr(seg, "text", "").strip()
-            if not text:
-                continue
-            if label != current_speaker:
-                if current_texts:
-                    lines.append(f"**{current_speaker}:** {' '.join(current_texts)}")
-                current_speaker = label
-                current_texts = [text]
-            else:
-                current_texts.append(text)
-
-        if current_texts:
-            lines.append(f"**{current_speaker}:** {' '.join(current_texts)}")
-
-        return "\n\n".join(lines)
 
     async def clean(self, text: str, instructions: str = "") -> str:
         """Clean transcript, then optionally reformat with a separate LLM call."""
