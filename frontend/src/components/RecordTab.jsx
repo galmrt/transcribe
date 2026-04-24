@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
+import AudioPlayer from './AudioPlayer'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -9,89 +10,67 @@ function formatTime(seconds) {
   return `${m}:${s}`
 }
 
-function RecordTab({ token }) {
-  const [isRecording, setIsRecording] = useState(false)
-  const [audioBlob, setAudioBlob] = useState(null)
-  const [audioUrl, setAudioUrl] = useState(null)
+function generateRings() {
+  return Array.from({ length: 8 }, () => ({
+    x: `${8 + Math.random() * 84}%`,
+    y: `${8 + Math.random() * 84}%`,
+    d: `${(Math.random() * 3.5).toFixed(2)}s`,
+    s: `${(0.7 + Math.random() * 0.7).toFixed(2)}`,
+  }))
+}
+
+function CollapsibleText({ children, render }) {
+  const ref = useRef(null)
+  const [overflows, setOverflows] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+
+  useEffect(() => {
+    if (ref.current) {
+      setOverflows(ref.current.scrollHeight > ref.current.clientHeight + 4)
+    }
+  }, [children])
+
+  return (
+    <>
+      <div ref={ref} className={`result-markdown result-collapsible ${expanded ? 'expanded' : ''}`}>
+        {render ? render(children) : children}
+      </div>
+      {(overflows || expanded) && (
+        <button className="result-collapse-toggle-btn" onClick={() => setExpanded(v => !v)}>
+          {expanded ? 'Show less ↑' : 'Show more ↓'}
+        </button>
+      )}
+    </>
+  )
+}
+
+function RecordTab({ token, isRecording, isPaused, audioBlob, audioUrl, previewUrl, elapsed, startRecording, stopRecording, pauseRecording, resumeRecording, resetRecording, discardRecording }) {
   const [transcript, setTranscript] = useState('')
   const [cleanedText, setCleanedText] = useState('')
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
-  const [elapsed, setElapsed] = useState(0)
-  const [mode, setMode] = useState('clean') // 'clean' | 'raw'
+  const [mode, setMode] = useState('clean')
   const [instructions, setInstructions] = useState('')
   const [showInstructions, setShowInstructions] = useState(false)
   const [tags, setTags] = useState([])
   const [actionItems, setActionItems] = useState([])
-
-  const mediaRecorderRef = useRef(null)
-  const chunksRef = useRef([])
-  const timerRef = useRef(null)
+  const [rings, setRings] = useState([])
+  const [autoTranscribe, setAutoTranscribe] = useState(false)
+  const transcribeRef = useRef(null)
 
   const authHeaders = { Authorization: `Bearer ${token}` }
 
-  useEffect(() => {
-    if (isRecording) {
-      setElapsed(0)
-      timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000)
-    } else {
-      clearInterval(timerRef.current)
-    }
-    return () => clearInterval(timerRef.current)
-  }, [isRecording])
-
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : MediaRecorder.isTypeSupported('audio/mp4')
-        ? 'audio/mp4'
-        : ''
-      const mediaRecorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream)
-      mediaRecorderRef.current = mediaRecorder
-      chunksRef.current = []
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data)
-      }
-
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType })
-        setAudioUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(blob) })
-        setAudioBlob(blob)
-        stream.getTracks().forEach((t) => t.stop())
-      }
-
-      mediaRecorder.start()
-      setIsRecording(true)
-      setError('')
-      setTranscript('')
-      setCleanedText('')
-    } catch {
-      setError('Could not access microphone. Please allow microphone access and try again.')
-    }
-  }
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop()
-      setIsRecording(false)
-    }
-  }
-
-  const transcribeAudio = async () => {
-    if (!audioBlob) return
+  const transcribeAudio = async (blob) => {
+    const b = blob || audioBlob
+    if (!b) return
     setLoading(true)
     setError('')
     try {
       setStatus('Transcribing...')
-      const ext = audioBlob.type.includes('mp4') ? 'mp4' : 'webm'
+      const ext = b.type.includes('mp4') ? 'mp4' : 'webm'
       const formData = new FormData()
-      formData.append('audio', audioBlob, `recording.${ext}`)
+      formData.append('audio', b, `recording.${ext}`)
       const res = await fetch(`${API_URL}/transcribe`, {
         method: 'POST',
         headers: authHeaders,
@@ -99,6 +78,14 @@ function RecordTab({ token }) {
       })
       if (!res.ok) throw new Error(`Transcription failed (${res.status})`)
       const { transcript: raw } = await res.json()
+
+      if (!raw || !raw.trim()) {
+        setError('Nothing was recorded — the audio appears to be empty or silent.')
+        setStatus('')
+        setLoading(false)
+        return
+      }
+
       setTranscript(raw)
 
       if (mode === 'clean') {
@@ -134,72 +121,152 @@ function RecordTab({ token }) {
     }
   }
 
-  const reset = () => {
-    if (audioUrl) URL.revokeObjectURL(audioUrl)
-    setAudioUrl(null)
-    setAudioBlob(null)
+  // keep a ref so the useEffect below always calls the latest version
+  transcribeRef.current = transcribeAudio
+
+  // when stopRecording() fires and audioBlob is set, auto-transcribe if requested
+  useEffect(() => {
+    if (audioBlob && autoTranscribe) {
+      setAutoTranscribe(false)
+      transcribeRef.current(audioBlob)
+    }
+  }, [audioBlob, autoTranscribe])
+
+  // Regenerate rings each time a new recording session starts
+  useEffect(() => {
+    if (isRecording && !isPaused) setRings(prev => prev.length === 0 ? generateRings() : prev)
+  }, [isRecording])
+
+  const handleStartRecording = () => {
+    setTranscript('')
+    setCleanedText('')
+    setTags([])
+    setActionItems([])
+    setError('')
+    setRings([])
+    startRecording((err) => setError(err))
+  }
+
+  const handleTranscribeFromPause = () => {
+    setAutoTranscribe(true)
+    stopRecording()
+  }
+
+  const handleDiscard = () => {
+    discardRecording()
     setTranscript('')
     setCleanedText('')
     setTags([])
     setActionItems([])
     setError('')
     setStatus('')
-    setElapsed(0)
   }
 
-  return (
-    <div className="record-page">
+  const reset = () => {
+    resetRecording()
+    setTranscript('')
+    setCleanedText('')
+    setTags([])
+    setActionItems([])
+    setError('')
+    setStatus('')
+  }
 
-      {/* Centered record area */}
+  const hasResults = transcript || cleanedText
+
+  return (
+    <div className={`record-page ${isRecording && !isPaused ? 'is-recording' : ''}`}>
+
+      {isRecording && (
+        <div className={`recording-rings ${isPaused ? 'rings-paused' : ''}`} aria-hidden="true">
+          {rings.map((r, i) => (
+            <div key={i} className="recording-ring" style={{ '--x': r.x, '--y': r.y, '--d': r.d, '--s': r.s }} />
+          ))}
+        </div>
+      )}
+
       <div className="record-stage">
-        {!audioBlob && !isRecording && (
+
+        {!audioBlob && (
           <div className="record-hero">
             <div className="record-hero-title">What's on your mind?</div>
             <div className="record-hero-sub">Record a thought, meeting, or note — and ask questions about it later.</div>
           </div>
         )}
 
+        {/* Record button — shown while idle or actively recording */}
         {!audioBlob && (
           <>
             <button
-              className={`record-btn ${isRecording ? 'record-btn-active' : 'record-btn-idle'}`}
-              onClick={isRecording ? stopRecording : startRecording}
+              className={`record-btn ${isRecording ? (isPaused ? 'record-btn-paused' : 'record-btn-active') : 'record-btn-idle'}`}
+              onClick={isRecording ? (isPaused ? resumeRecording : pauseRecording) : handleStartRecording}
             >
               <span className="record-btn-icon" />
             </button>
 
-            {isRecording ? (
+            {isRecording && !isPaused && (
               <>
                 <div className="record-timer">{formatTime(elapsed)}</div>
-                <div className="record-label">Recording — tap to stop</div>
+                <div className="record-label">Recording — tap to pause</div>
               </>
-            ) : (
+            )}
+
+            {!isRecording && !isPaused && (
               <div className="record-label">Tap to start recording</div>
             )}
           </>
         )}
 
+        {/* Paused state — shown while paused, no blob yet */}
+        {isPaused && !audioBlob && (
+          <div className="record-paused-options">
+            <div className="record-timer" style={{ color: '#6b7280' }}>{formatTime(elapsed)}</div>
+            <div className="record-label" style={{ color: '#6b7280' }}>Paused — tap button to continue</div>
+            {previewUrl && <AudioPlayer src={previewUrl} knownDuration={elapsed} />}
+            <button
+              className="button button-primary record-ready-btn"
+              onClick={handleTranscribeFromPause}
+              disabled={loading}
+            >
+              {loading ? status || 'Processing...' : 'Transcribe & Save'}
+            </button>
+            <button className="button button-secondary record-ready-btn-secondary" onClick={handleDiscard}>
+              Discard & Redo
+            </button>
+          </div>
+        )}
+
+        {/* Post-stop: audio player + buttons */}
         {audioBlob && !isRecording && (
-          <div className="record-actions">
-            <audio controls src={audioUrl} style={{ width: '100%', borderRadius: '8px' }} />
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                className="button button-primary"
-                onClick={transcribeAudio}
-                disabled={loading}
-                style={{ flex: 1 }}
-              >
-                {loading ? status || 'Processing...' : 'Transcribe & Save'}
-              </button>
-              <button className="button button-secondary" onClick={reset} disabled={loading}>
-                Redo
-              </button>
+          <div className="record-ready">
+            <div className="record-ready-icon">✓</div>
+            <div className="record-ready-title">Recording complete</div>
+            <AudioPlayer src={audioUrl} knownDuration={elapsed} />
+            <div className="record-ready-actions">
+              {hasResults ? (
+                <button className="button button-primary record-ready-btn" onClick={reset}>
+                  Make another recording
+                </button>
+              ) : (
+                <>
+                  <button
+                    className="button button-primary record-ready-btn"
+                    onClick={() => transcribeAudio()}
+                    disabled={loading}
+                  >
+                    {loading ? status || 'Processing...' : 'Transcribe & Save'}
+                  </button>
+                  <button className="button button-secondary record-ready-btn-secondary" onClick={reset} disabled={loading}>
+                    Discard & Redo
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
 
-        {/* Mode toggle — below record button */}
-        {!audioBlob && !isRecording && (
+        {/* Mode toggle */}
+        {!audioBlob && (
           <div className="record-options">
             <div className="record-option-group">
               <div className="record-option-label">Output mode</div>
@@ -209,18 +276,8 @@ function RecordTab({ token }) {
                   : 'Saves the transcript exactly as spoken, with no edits.'}
               </div>
               <div className="mode-toggle" style={{ marginTop: '10px' }}>
-                <button
-                  className={`mode-btn ${mode === 'clean' ? 'active' : ''}`}
-                  onClick={() => setMode('clean')}
-                >
-                  Clean
-                </button>
-                <button
-                  className={`mode-btn ${mode === 'raw' ? 'active' : ''}`}
-                  onClick={() => setMode('raw')}
-                >
-                  Raw
-                </button>
+                <button className={`mode-btn ${mode === 'clean' ? 'active' : ''}`} onClick={() => setMode('clean')}>Clean</button>
+                <button className={`mode-btn ${mode === 'raw' ? 'active' : ''}`} onClick={() => setMode('raw')}>Raw</button>
               </div>
             </div>
 
@@ -231,11 +288,7 @@ function RecordTab({ token }) {
                   Tell the AI how to format the result — e.g. "bullet list", "table", "highlight action items".
                   Leave blank to just clean the transcript.
                 </div>
-                <button
-                  className="instructions-toggle"
-                  style={{ marginTop: '10px' }}
-                  onClick={() => setShowInstructions(v => !v)}
-                >
+                <button className="instructions-toggle" style={{ marginTop: '10px' }} onClick={() => setShowInstructions(v => !v)}>
                   {showInstructions ? '− Hide instructions' : '+ Add instructions'}
                 </button>
                 {showInstructions && (
@@ -254,28 +307,27 @@ function RecordTab({ token }) {
         )}
       </div>
 
-      {error && <div className="error">{error}</div>}
+      {/* Full-width results */}
+      {error && <div className="error record-result-pad">{error}</div>}
 
       {transcript && mode === 'clean' && (
-        <div className="result">
+        <div className="result record-result-pad">
           <h3>Raw transcript</h3>
-          <div className="result-markdown">{transcript}</div>
+          <CollapsibleText>{transcript}</CollapsibleText>
         </div>
       )}
 
       {transcript && mode === 'raw' && !loading && (
-        <div className="result result-success">
+        <div className="result result-success record-result-pad">
           <h3>Saved</h3>
-          <div className="result-markdown">{transcript}</div>
+          <CollapsibleText>{transcript}</CollapsibleText>
         </div>
       )}
 
       {cleanedText && (
-        <div className="result result-success">
+        <div className="result result-success record-result-pad">
           <h3>Cleaned & saved</h3>
-          <div className="result-markdown">
-            <ReactMarkdown>{cleanedText}</ReactMarkdown>
-          </div>
+          <CollapsibleText render={(c) => <ReactMarkdown>{c}</ReactMarkdown>}>{cleanedText}</CollapsibleText>
           {tags.length > 0 && (
             <div className="tag-list" style={{ marginTop: '12px' }}>
               {tags.map(tag => <span key={tag} className="tag-chip">{tag}</span>)}
@@ -293,13 +345,13 @@ function RecordTab({ token }) {
       )}
 
       {transcript && mode === 'raw' && !loading && tags.length > 0 && (
-        <div className="tag-list" style={{ marginTop: '12px' }}>
+        <div className="tag-list record-result-pad">
           {tags.map(tag => <span key={tag} className="tag-chip">{tag}</span>)}
         </div>
       )}
 
       {transcript && mode === 'raw' && !loading && actionItems.length > 0 && (
-        <div className="action-items">
+        <div className="action-items record-result-pad">
           <div className="action-items-label">Action items</div>
           <ul className="action-items-list">
             {actionItems.map((item, i) => <li key={i}>{item}</li>)}
