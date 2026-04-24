@@ -14,14 +14,7 @@ const NAV_ITEMS = [
 ]
 
 function MicIcon() {
-  return (
-    <svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="32" height="32" rx="8" fill="#2d6be4"/>
-      <rect x="13" y="6" width="6" height="12" rx="3" fill="white"/>
-      <path d="M9 17a7 7 0 0014 0" stroke="white" strokeWidth="2" fill="none" strokeLinecap="round"/>
-      <rect x="15" y="24" width="2" height="4" fill="white"/>
-    </svg>
-  )
+  return <img src="/logo.png" alt="logo" width="72" height="72" style={{ objectFit: 'contain', marginLeft: '-10px' }} />
 }
 
 function UserAvatar({ email }) {
