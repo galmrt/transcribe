@@ -4,6 +4,46 @@ import AudioPlayer from './AudioPlayer'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+async function toWav(blob) {
+  const arrayBuffer = await blob.arrayBuffer()
+  const ctx = new AudioContext()
+  let audioBuffer
+  try {
+    audioBuffer = await ctx.decodeAudioData(arrayBuffer)
+  } finally {
+    await ctx.close()
+  }
+  const sampleRate = 16000
+  const offline = new OfflineAudioContext(1, Math.ceil(audioBuffer.duration * sampleRate), sampleRate)
+  const src = offline.createBufferSource()
+  src.buffer = audioBuffer
+  src.connect(offline.destination)
+  src.start(0)
+  const rendered = await offline.startRendering()
+  return encodeWav(rendered)
+}
+
+function encodeWav(buf) {
+  const samples = buf.getChannelData(0)
+  const n = samples.length
+  const ab = new ArrayBuffer(44 + n * 2)
+  const v = new DataView(ab)
+  const str = (off, s) => [...s].forEach((c, i) => v.setUint8(off + i, c.charCodeAt(0)))
+  str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true)
+  str(8, 'WAVE'); str(12, 'fmt ')
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true)
+  v.setUint32(24, 16000, true); v.setUint32(28, 32000, true)
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true)
+  str(36, 'data'); v.setUint32(40, n * 2, true)
+  let off = 44
+  for (let i = 0; i < n; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]))
+    v.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true)
+    off += 2
+  }
+  return new Blob([ab], { type: 'audio/wav' })
+}
+
 function formatTime(seconds) {
   const m = String(Math.floor(seconds / 60)).padStart(2, '0')
   const s = String(seconds % 60).padStart(2, '0')
@@ -67,16 +107,27 @@ function RecordTab({ token, isRecording, isPaused, audioBlob, audioUrl, previewU
     setLoading(true)
     setError('')
     try {
+      setStatus('Preparing audio...')
+      let audioToSend = b
+      let ext = b.type.includes('mp4') ? 'mp4' : 'webm'
+      try {
+        audioToSend = await toWav(b)
+        ext = 'wav'
+      } catch (e) {
+        console.warn('WAV conversion failed, sending original:', e)
+      }
       setStatus('Transcribing...')
-      const ext = b.type.includes('mp4') ? 'mp4' : 'webm'
       const formData = new FormData()
-      formData.append('audio', b, `recording.${ext}`)
+      formData.append('audio', audioToSend, `recording.${ext}`)
       const res = await fetch(`${API_URL}/transcribe`, {
         method: 'POST',
         headers: authHeaders,
         body: formData,
       })
-      if (!res.ok) throw new Error(`Transcription failed (${res.status})`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail || `Transcription failed (${res.status})`)
+      }
       const { transcript: raw } = await res.json()
 
       if (!raw || !raw.trim()) {
@@ -226,7 +277,7 @@ function RecordTab({ token, isRecording, isPaused, audioBlob, audioUrl, previewU
             <button
               className="button button-primary record-ready-btn"
               onClick={handleTranscribeFromPause}
-              disabled={loading}
+              disabled={loading || elapsed < 1}
             >
               {loading ? status || 'Processing...' : 'Transcribe & Save'}
             </button>
@@ -252,7 +303,7 @@ function RecordTab({ token, isRecording, isPaused, audioBlob, audioUrl, previewU
                   <button
                     className="button button-primary record-ready-btn"
                     onClick={() => transcribeAudio()}
-                    disabled={loading}
+                    disabled={loading || elapsed < 1}
                   >
                     {loading ? status || 'Processing...' : 'Transcribe & Save'}
                   </button>

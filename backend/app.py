@@ -8,6 +8,7 @@ from typing import Annotated
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from groq import BadRequestError as GroqBadRequestError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -135,6 +136,9 @@ async def transcribe_audio(
 
         transcript = await transcription.transcribe(tmp_path)
         return {"transcript": transcript}
+    except (GroqBadRequestError, ValueError) as e:
+        logger.warning("Audio rejected: %s", e)
+        raise HTTPException(status_code=400, detail="Recording is too short — please record for at least a second")
     except Exception:
         logger.exception("Transcription failed")
         raise HTTPException(status_code=500, detail="Transcription failed")

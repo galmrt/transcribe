@@ -26,7 +26,10 @@ class TranscriptionService:
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-        logger.info("Transcribing: %s", audio_path)
+        file_size = os.path.getsize(audio_path)
+        logger.info("Transcribing: %s (%d bytes)", audio_path, file_size)
+        if file_size < 1000:
+            raise ValueError(f"Audio file too small ({file_size} bytes) — likely empty recording")
         with open(audio_path, "rb") as f:
             audio_bytes = f.read()
 
