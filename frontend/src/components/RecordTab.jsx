@@ -172,10 +172,8 @@ function RecordTab({ token, isRecording, isPaused, audioBlob, audioUrl, previewU
     }
   }
 
-  // keep a ref so the useEffect below always calls the latest version
   transcribeRef.current = transcribeAudio
 
-  // when stopRecording() fires and audioBlob is set, auto-transcribe if requested
   useEffect(() => {
     if (audioBlob && autoTranscribe) {
       setAutoTranscribe(false)
@@ -183,7 +181,6 @@ function RecordTab({ token, isRecording, isPaused, audioBlob, audioUrl, previewU
     }
   }, [audioBlob, autoTranscribe])
 
-  // Regenerate rings each time a new recording session starts
   useEffect(() => {
     if (isRecording && !isPaused) setRings(prev => prev.length === 0 ? generateRings() : prev)
   }, [isRecording])
@@ -245,7 +242,6 @@ function RecordTab({ token, isRecording, isPaused, audioBlob, audioUrl, previewU
           </div>
         )}
 
-        {/* Record button — shown while idle or actively recording */}
         {!audioBlob && (
           <>
             <button
@@ -268,7 +264,6 @@ function RecordTab({ token, isRecording, isPaused, audioBlob, audioUrl, previewU
           </>
         )}
 
-        {/* Paused state — shown while paused, no blob yet */}
         {isPaused && !audioBlob && (
           <div className="record-paused-options">
             <div className="record-timer" style={{ color: '#6b7280' }}>{formatTime(elapsed)}</div>
@@ -287,7 +282,6 @@ function RecordTab({ token, isRecording, isPaused, audioBlob, audioUrl, previewU
           </div>
         )}
 
-        {/* Post-stop: audio player + buttons */}
         {audioBlob && !isRecording && (
           <div className="record-ready">
             <div className="record-ready-icon">✓</div>
@@ -316,7 +310,6 @@ function RecordTab({ token, isRecording, isPaused, audioBlob, audioUrl, previewU
           </div>
         )}
 
-        {/* Mode toggle */}
         {!audioBlob && (
           <div className="record-options">
             <div className="record-option-group">
@@ -358,7 +351,6 @@ function RecordTab({ token, isRecording, isPaused, audioBlob, audioUrl, previewU
         )}
       </div>
 
-      {/* Full-width results */}
       {error && <div className="error record-result-pad">{error}</div>}
 
       {transcript && mode === 'clean' && (

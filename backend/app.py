@@ -21,12 +21,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-MAX_UPLOAD_SIZE = 25 * 1024 * 1024  # 25 MB
+MAX_UPLOAD_SIZE = 25 * 1024 * 1024
 MAX_QUERY_LENGTH = 1000
 
 from services import TranscriptionService, StorageService, ChatService, EmbeddingService
 
-# ── Auth ──────────────────────────────────────────────────────────────────────
 
 async def get_current_user(authorization: str = Header(None)) -> str:
     if not authorization or not authorization.startswith("Bearer "):
@@ -39,8 +38,6 @@ async def get_current_user(authorization: str = Header(None)) -> str:
         logger.warning("Auth failed: %s", e)
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-
-# ── Services (initialised in lifespan) ───────────────────────────────────────
 
 transcription: TranscriptionService = None
 storage: StorageService = None
@@ -80,8 +77,6 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-# ── App ───────────────────────────────────────────────────────────────────────
-
 app = FastAPI(title="Transcripts API", lifespan=lifespan)
 
 allowed_origins = os.getenv(
@@ -97,8 +92,6 @@ app.add_middleware(
 )
 
 
-# ── Request / response models ─────────────────────────────────────────────────
-
 class CleanRequest(BaseModel):
     text: str
     instructions: str = ""
@@ -110,8 +103,6 @@ class ChatRequest(BaseModel):
     messages: list
     query: str
 
-
-# ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():

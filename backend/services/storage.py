@@ -18,8 +18,6 @@ class StorageService:
         logger.info("Supabase client initialized")
         return cls(client)
 
-    # ── Transcripts ───────────────────────────────────────────────────────────
-
     async def save_transcript(
         self,
         user_id: str,
@@ -117,8 +115,6 @@ class StorageService:
             )
         except Exception as e:
             logger.warning("Failed to log search: %s", e)
-
-    # ── Chat sessions ─────────────────────────────────────────────────────────
 
     async def upsert_chat_session(
         self, user_id: str, session_id: str, messages: list, title: str

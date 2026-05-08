@@ -35,7 +35,6 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('record')
 
-  // ── Recording state (lifted so it persists across tab switches) ──
   const [isRecording, setIsRecording] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
   const [audioBlob, setAudioBlob] = useState(null)
@@ -145,7 +144,6 @@ function App() {
     setElapsed(0)
     setIsPaused(false)
   }
-  // ────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {

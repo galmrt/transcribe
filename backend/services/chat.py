@@ -97,18 +97,16 @@ class ChatService:
         query: str,
     ):
         """Async generator yielding SSE-formatted strings."""
-        # Build message list
         groq_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         for msg in messages:
             groq_messages.append({"role": msg["role"], "content": msg["content"]})
         groq_messages.append({"role": "user", "content": query})
 
         full_answer = ""
-        tool_loop_limit = 4  # prevent runaway tool calls
+        tool_loop_limit = 4
 
         try:
             for _ in range(tool_loop_limit):
-                # Non-streaming call to resolve tool use
                 response = await self.client.chat.completions.create(
                     model=self.model,
                     messages=groq_messages,
@@ -145,7 +143,6 @@ class ChatService:
 
                     continue
 
-                # LLM is done with tool calls — stream the final answer
                 stream = await self.client.chat.completions.create(
                     model=self.model,
                     messages=groq_messages,
@@ -163,7 +160,6 @@ class ChatService:
         except BadRequestError as e:
             if "tool_use_failed" not in str(e):
                 raise
-            # Model generated malformed tool call — fall back to manual search + direct stream
             logger.warning("Tool call generation failed, falling back to direct search: %s", e)
             yield f"data: {json.dumps({'type': 'status', 'message': 'Searching your transcripts...'})}\n\n"
             context = await self._run_search(user_id, query)
@@ -189,7 +185,6 @@ class ChatService:
             full_answer = "I wasn't able to find a clear answer in your transcripts."
             yield f"data: {json.dumps({'type': 'chunk', 'content': full_answer})}\n\n"
 
-        # Save session
         now = datetime.now(timezone.utc).isoformat()
         updated_messages = messages + [
             {"role": "user", "content": query, "timestamp": now},
